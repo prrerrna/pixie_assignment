@@ -1,0 +1,12 @@
+{
+  "name": "pixie-event-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix client",
+    "start": "concurrently \"npm start --prefix backend\" \"npm start --prefix client\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

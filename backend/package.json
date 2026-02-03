@@ -1,0 +1,22 @@
+{
+  "name": "pixie-events-backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "pixie-event-tracker": "file:..",
+    "puppeteer-core": "^24.36.1",
+    "xlsx": "^0.18.5"
+  }
+}
