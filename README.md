@@ -5,7 +5,7 @@ Pixie’s ops team uses this dashboard to proactively identify event opportuniti
 
 ## Tech decisions
 - Platform: BookMyShow (public event listings and stable city-based URLs).
-- Scraper: Puppeteer-core + Cheerio (uses local Chrome for reliable scraping, then parses HTML).
+- Scraper: Playwright Chromium (natural smooth scrolling for reliable lazy-loading, ~30-40s per city).
 - Storage: Excel (.xlsx) as the single source of truth (no database).
 
 ## Repository structure
@@ -38,14 +38,13 @@ npm start
 Frontend runs on http://localhost:5173
 
 ## Environment
-Copy backend/.env.example to backend/.env and adjust as needed.
-Add CHROME_PATH if Chrome is installed in a custom location. Example:
-CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
+Copy backend/.env.example to backend/.env (optional, defaults work).
+Chromium is used automatically by Playwright.
 
 ## How it works
 - `GET /cities` returns supported cities.
 - `GET /events?city={city}` reads events from Excel.
-- `POST /refresh-events?city={city}` scrapes BookMyShow, deduplicates by `event_url`, updates rows, and marks expired events.
+- `POST /refresh-events?city={city}` scrapes BookMyShow with natural smooth scrolling (2 passes × 18s), deduplicates by `event_url`, updates rows, and marks expired events.
 - A cron job runs the same refresh logic on a schedule (default: every 6 hours).
 
 ## Excel sheet structure
@@ -61,15 +60,16 @@ jaipur, mumbai, delhi, chandigarh, lucknow
 ## How to validate (quick demo)
 1. Start backend and frontend.
 2. In the UI, pick a city and click “Refresh Events”.
-3. Observe updated rows and status badges.
+3. Observe updated rows and status badges in the modern gradient UI.
 4. Open backend/data/events.xlsx to verify persisted data.
 
 Note: On first run, the Excel sheet is pre-filled with one sample event per city so the UI shows data immediately.
 
 ## What I would do next (if more time)
-- Add fallback to a headless browser for stronger scraping resilience.
-- Add alerting/monitoring for failed cron runs.
-- Expand to multiple platforms with a unified schema.
+- Add date extraction from individual event pages
+- Add alerting/monitoring for failed cron runs
+- Expand to multiple platforms with a unified schema
+- Export functionality from UI (CSV/JSON download)
 
 ## PDF submission content (paste into 2-page PDF)
 ### Page 1
@@ -79,7 +79,7 @@ Note: On first run, the Excel sheet is pre-filled with one sample event per city
 Pixie needs a recurring way to surface upcoming events in each city to target photobooth placements. This tool scrapes BookMyShow, stores the results in Excel, and updates event status automatically.
 
 **Solution Overview**
-- Backend: Node.js + Express APIs with Puppeteer-core + Cheerio scraping.
+- Backend: Node.js + Express APIs with Playwright scraping (70%-90% scroll pattern).
 - Storage: Excel (.xlsx) as single source of truth.
 - Automation: node-cron scheduled refresh.
 - Frontend: React dashboard with city selection and refresh actions.
@@ -89,6 +89,7 @@ Pixie needs a recurring way to surface upcoming events in each city to target ph
 - Deduplication by event_url
 - Expiry detection by event_date
 - Auto-refresh on a schedule
+- Smart scrolling pattern to load lazy-loaded content
 
 **Screenshot placeholders**
 - [Screenshot: Dashboard with events table]

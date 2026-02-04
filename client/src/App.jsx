@@ -9,6 +9,11 @@ const formatDate = (value) => {
   return d.toISOString().slice(0, 10);
 };
 
+const capitalize = (str) => {
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+};
+
 const StatusBadge = ({ status }) => {
   const normalized = status || "upcoming";
   return (
@@ -100,8 +105,8 @@ const App = () => {
     <div className="page">
       <header className="header">
         <div>
-          <h1>Pixie Event Tracker</h1>
-          <p>Track upcoming events for photobooth outreach.</p>
+          <h1>🎯 Pixie Event Tracker</h1>
+          <p>Discover and track upcoming events for photobooth placement opportunities</p>
         </div>
         <div className="controls">
           <label>
@@ -133,7 +138,7 @@ const App = () => {
             <select value={city} onChange={(e) => setCity(e.target.value)}>
               {cities.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {capitalize(item)}
                 </option>
               ))}
             </select>
@@ -146,15 +151,15 @@ const App = () => {
 
       <section className="meta">
         <div className="meta-left">
-          <span>Last refreshed: {lastRefreshed || "Not yet"}</span>
+          <span>📅 Last refreshed: <strong>{lastRefreshed || "Not yet"}</strong></span>
           <span className="meta-divider">•</span>
-          <span>Source: {refreshSource}</span>
+          <span>📦 Source: <strong>{refreshSource}</strong></span>
           <span className="meta-divider">•</span>
           <span>
-            Showing {sortedEvents.length} of {events.length}
+            📊 Showing <strong>{sortedEvents.length}</strong> of <strong>{events.length}</strong> events
           </span>
         </div>
-        {error && <span className="error">{error}</span>}
+        {error && <span className="error">❌ {error}</span>}
       </section>
 
       <section className="table-wrapper">

@@ -14,12 +14,12 @@ const refreshCityEvents = async (city) => {
     const scraped = await scrapeBookMyShow(city, Number(process.env.SCRAPE_TIMEOUT_MS || 20000));
     try {
       const updated = upsertEvents(filePath, scraped);
-      return { source: "scrape", events: updated.filter((event) => event.city === city) };
+      return { source: "scrape", events: updated.filter((event) => event.city.toLowerCase() === city.toLowerCase()) };
     } catch (error) {
       const cached = readEvents(filePath);
       return {
         source: "cache",
-        events: cached.filter((event) => event.city === city)
+        events: cached.filter((event) => event.city.toLowerCase() === city.toLowerCase())
       };
     }
   } catch (error) {
@@ -27,13 +27,13 @@ const refreshCityEvents = async (city) => {
       const updated = refreshExpiry(filePath);
       return {
         source: "cache",
-        events: updated.filter((event) => event.city === city)
+        events: updated.filter((event) => event.city.toLowerCase() === city.toLowerCase())
       };
     } catch (writeError) {
       const cached = readEvents(filePath);
       return {
         source: "cache",
-        events: cached.filter((event) => event.city === city)
+        events: cached.filter((event) => event.city.toLowerCase() === city.toLowerCase())
       };
     }
   }
@@ -47,7 +47,7 @@ router.get("/events", (req, res) => {
   const city = (req.query.city || "").toString().toLowerCase();
   const filePath = getDataFile();
   const events = readEvents(filePath);
-  const filtered = city ? events.filter((event) => event.city === city) : events;
+  const filtered = city ? events.filter((event) => event.city.toLowerCase() === city) : events;
   res.json({ events: filtered });
 });
 

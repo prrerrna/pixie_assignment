@@ -61,38 +61,93 @@ const writeEvents = (filePath, rows) => {
 
 const upsertEvents = (filePath, incoming) => {
   const existing = readEvents(filePath);
-  const map = new Map();
+  const urlMap = new Map(); // Primary key: event_url
+  const nameMap = new Map(); // Secondary key: event_name + city
 
+  // Load existing events into both maps
   existing.forEach((row) => {
-    if (row.event_url) map.set(row.event_url, row);
+    if (row.event_url && row.event_url.trim()) {
+      const normalizedUrl = row.event_url.trim().toLowerCase();
+      urlMap.set(normalizedUrl, row);
+    }
+    // Also track by name+city composite key
+    if (row.event_name && row.city) {
+      const compositeKey = `${row.event_name.toLowerCase().trim()}|${row.city.toLowerCase().trim()}`;
+      nameMap.set(compositeKey, row);
+    }
   });
 
   const nowIso = new Date().toISOString();
+  const processedKeys = new Set(); // Track what we've already processed
 
+  // Process incoming events
   incoming.forEach((event) => {
-    const current = map.get(event.event_url);
+    // Skip events without valid URL (cannot deduplicate without it)
+    if (!event.event_url || !event.event_url.trim()) {
+      console.warn(`Skipping event without URL: ${event.event_name}`);
+      return;
+    }
+
+    const normalizedUrl = event.event_url.trim().toLowerCase();
+    const compositeKey = event.event_name && event.city
+      ? `${event.event_name.toLowerCase().trim()}|${event.city.toLowerCase().trim()}`
+      : null;
+
+    // Skip if we've already processed this event (by name+city)
+    if (compositeKey && processedKeys.has(compositeKey)) {
+      console.log(`Skipping duplicate: ${event.event_name} in ${event.city}`);
+      return;
+    }
+
+    // Check if event exists by URL OR by name+city
+    let current = urlMap.get(normalizedUrl);
+    if (!current && compositeKey) {
+      current = nameMap.get(compositeKey);
+    }
+
     const isoDate = toISODate(event.event_date);
     const status = isExpired(isoDate) ? "expired" : "upcoming";
+
     const payload = {
-      event_name: event.event_name,
+      event_name: event.event_name || "",
       event_date: isoDate || event.event_date || "",
       venue: event.venue || "",
       city: event.city || "",
       category: event.category || "",
-      event_url: event.event_url,
+      event_url: event.event_url.trim(), // Store original case URL
       status,
       last_updated: nowIso
     };
 
     if (current) {
-      map.set(event.event_url, { ...current, ...payload });
+      // Update existing event, preserving better data
+      const mergedEvent = {
+        ...current,
+        ...payload,
+        // Keep existing venue/category if new one is empty
+        venue: payload.venue || current.venue || "",
+        category: payload.category || current.category || ""
+      };
+      urlMap.set(normalizedUrl, mergedEvent);
+      if (compositeKey) {
+        nameMap.set(compositeKey, mergedEvent);
+      }
     } else {
-      map.set(event.event_url, payload);
+      urlMap.set(normalizedUrl, payload);
+      if (compositeKey) {
+        nameMap.set(compositeKey, payload);
+      }
+    }
+
+    // Mark this event as processed
+    if (compositeKey) {
+      processedKeys.add(compositeKey);
     }
   });
 
-  const updated = Array.from(map.values());
+  const updated = Array.from(urlMap.values());
 
+  // Final expiry check
   updated.forEach((row) => {
     const isoDate = toISODate(row.event_date);
     if (isExpired(isoDate)) {
