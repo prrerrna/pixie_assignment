@@ -65,6 +65,17 @@ jaipur, mumbai, delhi, chandigarh, lucknow
 
 Note: On first run, the Excel sheet is pre-filled with one sample event per city so the UI shows data immediately.
 
+## Screenshots
+
+### Dashboard & Events Table
+![Dashboard UI](pics/Screenshot%202026-02-04%20191326.png)
+
+### Filtered View
+![Filtered View](pics/Screenshot%202026-02-04%20191334.png)
+
+### Excel Data Output
+![Excel Output](pics/Screenshot%202026-02-04%20191441.png)
+
 ## What I would do next (if more time)
 - Add date extraction from individual event pages
 - Add alerting/monitoring for failed cron runs
