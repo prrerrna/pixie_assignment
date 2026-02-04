@@ -310,7 +310,7 @@ const scrapeBookMyShow = async (city, timeoutMs = 60000) => {
 
     // Navigate to page
     console.log("📄 Loading page...");
-    await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
 
     console.log("⏳ Waiting for initial content...");
     await sleep(CONFIG.INITIAL_WAIT_MS);
