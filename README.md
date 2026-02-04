@@ -71,6 +71,7 @@ Note: On first run, the Excel sheet is pre-filled with one sample event per city
 - Expand to multiple platforms with a unified schema
 - Export functionality from UI (CSV/JSON download)
 
+<<<<<<< HEAD
 ## PDF submission content (paste into 2-page PDF)
 ### Page 1
 **Title:** Pixie Event Discovery & Tracking Tool
@@ -118,3 +119,5 @@ Web scraping: Yes – built a BookMyShow scraper with Puppeteer-core + Cheerio.
 Scheduled jobs/cron: Yes – node-cron refresh every 6 hours.
 Writing to Excel/Google Sheets: Yes – Excel as primary store.
 Working with APIs: Yes – built Express APIs for events.
+=======
+>>>>>>> 2449ad398d8e1992d6fd1f6ce43a90cb49b9d0f6
