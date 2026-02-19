@@ -12,7 +12,7 @@
  */
 
 const { chromium } = require("playwright");
-const { toISODate, isExpired } = require("../utils/date");
+const { toISODate } = require("../utils/date");
 
 /* ── Configuration ────────────────────────────────────────────────────── */
 const CONFIG = {
@@ -255,10 +255,10 @@ const extractEvents = async (page, city) => {
         counters.datesFromText++;
       }
 
-      // ── Normalise date to ISO & compute status ─────────────────────
+      // ── Normalise date to ISO ─────────────────────────────────────
       const isoDate = toISODate(event.event_date);
       event.event_date = isoDate;
-      event.status = isoDate && isExpired(isoDate) ? "expired" : "upcoming";
+      // Status is computed client-side (frontend + Google Sheets formula)
 
       events.push(event);
       counters.extracted++;

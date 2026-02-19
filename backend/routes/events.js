@@ -1,6 +1,6 @@
 const express = require("express");
 const { cities } = require("../config/cities");
-const { upsertEvents, readEvents, refreshExpiry, getAnalytics } = require("../db/supabase");
+const { upsertEvents, readEvents, getAnalytics } = require("../db/supabase");
 const { scrapeBookMyShow } = require("../scraper/bookmyshow");
 const { syncToSheets } = require("../sheets/sync");
 
@@ -17,10 +17,7 @@ const refreshCityEvents = async (city) => {
     // 2. Save to Supabase
     await upsertEvents(scraped);
 
-    // 3. Refresh expiry for all events
-    await refreshExpiry();
-
-    // 4. Read back city events
+    // 3. Read back city events (status computed client-side)
     const cityEvents = await readEvents(city);
 
     // 5. Sync ALL events to Google Sheets (async, don't block response)
@@ -31,7 +28,6 @@ const refreshCityEvents = async (city) => {
     console.error(`Scrape failed for ${city}:`, err.message);
     // Fallback: return cached data from Supabase
     try {
-      await refreshExpiry();
       const cached = await readEvents(city);
       return { source: "cache", events: cached };
     } catch (dbErr) {

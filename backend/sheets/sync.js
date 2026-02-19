@@ -29,16 +29,25 @@ const syncToSheets = async (events) => {
             "Category", "Event URL", "Status", "Last Updated"
         ];
 
-        const rows = events.map((e) => [
-            e.event_name || "",
-            e.event_date || "",
-            e.venue || "",
-            e.city || "",
-            e.category || "",
-            e.event_url || "",
-            e.status || "",
-            e.last_updated ? new Date(e.last_updated).toLocaleString("en-IN") : "",
-        ]);
+        // Row 1 = sync timestamp, Row 2 = headers, data starts at Row 3
+        const rows = events.map((e, i) => {
+            const rowNum = i + 3; // data row number in the sheet
+            // Status formula: computes live using TODAY() — always accurate
+            const statusFormula = e.event_date
+                ? `=IF(B${rowNum}<TODAY(),"expired",IF(B${rowNum}=TODAY(),"today","upcoming"))`
+                : "upcoming";
+
+            return [
+                e.event_name || "",
+                e.event_date || "",
+                e.venue || "",
+                e.city || "",
+                e.category || "",
+                e.event_url || "",
+                statusFormula,
+                e.last_updated ? new Date(e.last_updated).toLocaleString("en-IN") : "",
+            ];
+        });
 
         // Clear existing content
         await sheets.spreadsheets.values.clear({
@@ -47,13 +56,14 @@ const syncToSheets = async (events) => {
         });
 
         // Write header + sync timestamp in A1
+        // Use USER_ENTERED so the status formulas are interpreted by Sheets
         const syncTime = `Last synced: ${new Date().toLocaleString("en-IN")} | Total: ${events.length} events`;
         const values = [[syncTime], headers, ...rows];
 
         await sheets.spreadsheets.values.update({
             spreadsheetId,
             range: "Sheet1!A1",
-            valueInputOption: "RAW",
+            valueInputOption: "USER_ENTERED",
             requestBody: { values },
         });
 

@@ -45,9 +45,15 @@
 2. **Parse** → Extracts event name, venue, category, price, URL from card text
 3. **Date Decode** → Decodes city-specific date from Base64 in image CDN URL
 4. **Upsert** → Saves to Supabase with deduplication via UNIQUE constraint on `event_url`
-5. **Sync** → Writes all events to Google Sheets (clears + rewrites)
+5. **Sync** → Writes all events to Google Sheets with `=IF(date<TODAY(),"expired",...)` formula
 6. **Serve** → Express API serves events to the Next.js dashboard
 7. **Display** → Dashboard computes live status (upcoming/today/expired) client-side
+
+### Status Architecture (Derived Field)
+Status is **never stored** — it's computed in real-time at the point of display:
+- **Frontend**: `computeLiveStatus()` compares `event_date` vs `new Date()` on every fetch
+- **Google Sheet**: `=IF(B{row}<TODAY(),"expired",IF(B{row}=TODAY(),"today","upcoming"))` formula auto-updates daily
+- **Database**: No status computation — saves write operations and avoids stale data
 
 ---
 
@@ -185,7 +191,13 @@ After every scrape (cron or manual), all events are synced to a Google Sheet:
    - Clears the entire sheet (`Sheet1!A:H`)
    - Writes headers: `Event Name, Event Date, Venue, City, Category, Event URL, Status, Last Updated`
    - Writes all events as rows
-3. **Sheet Access**: The service account email is added as an Editor to the target Google Sheet
+   - Uses `valueInputOption: "USER_ENTERED"` so formulas are interpreted
+3. **Live Status Formula**: Instead of a static string, the Status column contains:
+   ```
+   =IF(B3<TODAY(),"expired",IF(B3=TODAY(),"today","upcoming"))
+   ```
+   This formula auto-updates using `TODAY()` — the sheet **always shows correct status** even between syncs.
+4. **Sheet Access**: The service account email is added as an Editor to the target Google Sheet
 
 ### Sheet Columns
 | Column | Description |
@@ -196,7 +208,7 @@ After every scrape (cron or manual), all events are synced to a Google Sheet:
 | City | Lowercase city name |
 | Category | Event category (e.g., "Stand up Comedy") |
 | Event URL | Full BMS URL for the event |
-| Status | upcoming / expired |
+| Status | **Live formula** — upcoming / today / expired (computed via `TODAY()`) |
 | Last Updated | Timestamp of last scrape |
 
 ---
@@ -344,11 +356,3 @@ Frontend runs on `http://localhost:3000`
 | Chandigarh | `/explore/events-chandigarh` |
 | Lucknow | `/explore/events-lucknow` |
 
----
-
-## 🚢 Deployment
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions:
-- **Backend** → Railway (with Playwright Chromium pre-installed)
-- **Frontend** → Vercel (with `NEXT_PUBLIC_API_URL` pointing to Railway)
-- **Google Sheet** → Shared as view-only link
