@@ -33,7 +33,7 @@ function Skeleton() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="sk-grid">
-        {[...Array(4)].map((_, i) => <div key={i} className="sk sk-stat stagger" />)}
+        {[...Array(5)].map((_, i) => <div key={i} className="sk sk-stat stagger" />)}
       </div>
       <div className="charts" style={{ marginBottom: 28 }}>
         <div className="sk sk-chart" />
@@ -46,7 +46,7 @@ function Skeleton() {
 
 export default function Dashboard() {
   const [theme, setTheme] = useState('dark');
-  const [city, setCity] = useState('all');
+  const [city, setCity] = useState('jaipur');
   const [analytics, setAnalytics] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
