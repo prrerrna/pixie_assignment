@@ -306,7 +306,19 @@ const scrapeBookMyShow = async (city, timeoutMs = 120000) => {
   const t0 = Date.now();
 
   try {
-    browser = await chromium.launch({ headless, timeout: timeoutMs });
+    browser = await chromium.launch({
+      headless,
+      timeout: timeoutMs,
+      args: [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-infobars",
+        "--window-position=0,0",
+        "--ignore-certificate-errors",
+        "--ignore-certificate-errors-spki-list",
+      ],
+    });
 
     const context = await browser.newContext({
       userAgent:
