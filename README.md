@@ -167,7 +167,7 @@ CRON_SCHEDULE=0 */6 * * *
 ### How It Works
 1. `cron/scheduler.js` registers a cron job on server startup
 2. Every 6 hours, it iterates through all 5 cities sequentially
-3. For each city: scrape → upsert to DB → refresh expiry → sync to Sheets
+3. For each city: scrape → upsert to DB → sync to Sheets
 4. If a city scrape fails, it logs the error and moves to the next city
 5. The cron schedule is configurable via the `CRON_SCHEDULE` env variable
 

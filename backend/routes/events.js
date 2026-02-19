@@ -20,7 +20,7 @@ const refreshCityEvents = async (city) => {
     // 3. Read back city events (status computed client-side)
     const cityEvents = await readEvents(city);
 
-    // 5. Sync ALL events to Google Sheets (async, don't block response)
+    // 4. Sync ALL events to Google Sheets (async, don't block response)
     readEvents().then((allEvents) => syncToSheets(allEvents)).catch(console.error);
 
     return { source: "scrape", events: cityEvents };
