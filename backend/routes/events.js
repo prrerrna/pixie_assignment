@@ -1,60 +1,76 @@
 const express = require("express");
 const { cities } = require("../config/cities");
-const { readEvents, upsertEvents, ensureFile, refreshExpiry } = require("../storage/excelStore");
+const { upsertEvents, readEvents, refreshExpiry, getAnalytics } = require("../db/supabase");
 const { scrapeBookMyShow } = require("../scraper/bookmyshow");
+const { syncToSheets } = require("../sheets/sync");
 
 const router = express.Router();
 
-const getDataFile = () => process.env.DATA_FILE || "./data/events.xlsx";
-
+/**
+ * Scrape a city, save to Supabase, sync to Google Sheets.
+ */
 const refreshCityEvents = async (city) => {
-  const filePath = getDataFile();
-  ensureFile(filePath);
   try {
-    const scraped = await scrapeBookMyShow(city, Number(process.env.SCRAPE_TIMEOUT_MS || 20000));
+    // 1. Scrape
+    const scraped = await scrapeBookMyShow(city, Number(process.env.SCRAPE_TIMEOUT_MS || 60000));
+
+    // 2. Save to Supabase
+    await upsertEvents(scraped);
+
+    // 3. Refresh expiry for all events
+    await refreshExpiry();
+
+    // 4. Read back city events
+    const cityEvents = await readEvents(city);
+
+    // 5. Sync ALL events to Google Sheets (async, don't block response)
+    readEvents().then((allEvents) => syncToSheets(allEvents)).catch(console.error);
+
+    return { source: "scrape", events: cityEvents };
+  } catch (err) {
+    console.error(`Scrape failed for ${city}:`, err.message);
+    // Fallback: return cached data from Supabase
     try {
-      const updated = upsertEvents(filePath, scraped);
-      return { source: "scrape", events: updated.filter((event) => event.city.toLowerCase() === city.toLowerCase()) };
-    } catch (error) {
-      const cached = readEvents(filePath);
-      return {
-        source: "cache",
-        events: cached.filter((event) => event.city.toLowerCase() === city.toLowerCase())
-      };
-    }
-  } catch (error) {
-    try {
-      const updated = refreshExpiry(filePath);
-      return {
-        source: "cache",
-        events: updated.filter((event) => event.city.toLowerCase() === city.toLowerCase())
-      };
-    } catch (writeError) {
-      const cached = readEvents(filePath);
-      return {
-        source: "cache",
-        events: cached.filter((event) => event.city.toLowerCase() === city.toLowerCase())
-      };
+      await refreshExpiry();
+      const cached = await readEvents(city);
+      return { source: "cache", events: cached };
+    } catch (dbErr) {
+      return { source: "cache", events: [] };
     }
   }
 };
 
+// GET /cities
 router.get("/cities", (req, res) => {
   res.json({ cities });
 });
 
-router.get("/events", (req, res) => {
-  const city = (req.query.city || "").toString().toLowerCase();
-  const filePath = getDataFile();
-  const events = readEvents(filePath);
-  const filtered = city ? events.filter((event) => event.city.toLowerCase() === city) : events;
-  res.json({ events: filtered });
+// GET /events?city=jaipur
+router.get("/events", async (req, res) => {
+  try {
+    const city = (req.query.city || "").toLowerCase() || null;
+    const events = await readEvents(city);
+    res.json({ events });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to read events", details: err.message });
+  }
 });
 
+// GET /analytics
+router.get("/analytics", async (req, res) => {
+  try {
+    const analytics = await getAnalytics();
+    res.json(analytics);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get analytics", details: err.message });
+  }
+});
+
+// POST /refresh-events?city=jaipur
 router.post("/refresh-events", async (req, res) => {
-  const city = (req.query.city || "").toString().toLowerCase();
+  const city = (req.query.city || "").toLowerCase();
   if (!city || !cities.includes(city)) {
-    return res.status(400).json({ error: "Invalid city" });
+    return res.status(400).json({ error: "Invalid city", validCities: cities });
   }
   try {
     const result = await refreshCityEvents(city);
@@ -62,10 +78,10 @@ router.post("/refresh-events", async (req, res) => {
       refreshed: result.events.length,
       events: result.events,
       source: result.source,
-      refreshedAt: new Date().toISOString()
+      refreshedAt: new Date().toISOString(),
     });
-  } catch (error) {
-    return res.status(500).json({ error: "Failed to refresh events", details: error.message });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to refresh events", details: err.message });
   }
 });
 

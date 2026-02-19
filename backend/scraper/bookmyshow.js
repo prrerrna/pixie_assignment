@@ -1,338 +1,337 @@
 /**
- * BookMyShow Event Scraper - Optimized Edition
- * Natural smooth scrolling with Chromium for reliable lazy loading
- * 2 complete passes in ~30-40 seconds total
+ * BookMyShow Event Scraper
+ *
+ * Key capabilities:
+ *  - Headless Chromium (production-safe, override with HEADLESS=false for debugging)
+ *  - Scroll-until-stable: keeps scrolling until no new events appear
+ *  - Robust text-line parsing for name, category, venue
+ *  - City-specific dates decoded from Base64 in image CDN URLs
+ *    (BMS uses ImageKit text overlay: l-text,ie-{base64-date})
+ *  - Status (upcoming / expired) computed at scrape time
+ *  - Quality gates: drops banner/footer cards (no venue = not a real event)
  */
 
 const { chromium } = require("playwright");
+const { toISODate, isExpired } = require("../utils/date");
 
-// Configuration
+/* ── Configuration ────────────────────────────────────────────────────── */
 const CONFIG = {
-  SCROLL_PASSES: 2,
-  PASS_DURATION_MS: 18000, // 18 seconds per pass
+  SCROLL_STEP_PX: 120,
+  SCROLL_DELAY_MS: 80,
+  STABLE_INTERVAL_MS: 2000,
+  LONG_WAIT_MS: 10000,
   INITIAL_WAIT_MS: 3000,
-  SCROLL_STEP_PX: 100, // Smooth pixel-based scrolling
-  SCROLL_DELAY_MS: 50, // Delay between scroll steps
   FINAL_WAIT_MS: 2000,
-  CATEGORY_KEYWORDS: [
-    "comedy",
-    "concert",
-    "workshop",
-    "festival",
-    "exhibition",
-    "theatre",
-    "sport",
-    "music",
-    "show",
-    "open mic",
-    "celebration",
-    "standup",
-    "live"
-  ]
+  MAX_SCROLL_TIME_MS: 90000,
 };
 
 const buildUrl = (city) => `https://in.bookmyshow.com/explore/events-${city}`;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Natural smooth scrolling - scrolls like a human
- * Performs 2 complete passes from top to bottom
- */
-const smoothScrollToLoadEvents = async (page) => {
-  console.log("\n🔄 Starting natural smooth scrolling...");
-  console.log(`📋 ${CONFIG.SCROLL_PASSES} passes × ${CONFIG.PASS_DURATION_MS / 1000}s each\n`);
+/* ── Scroll Until Stable ──────────────────────────────────────────────── */
+const scrollUntilStable = async (page) => {
+  console.log("\n🔄 Scrolling until all events loaded...\n");
 
-  for (let pass = 1; pass <= CONFIG.SCROLL_PASSES; pass++) {
-    const startTime = Date.now();
-    console.log(`📜 Pass ${pass}/${CONFIG.SCROLL_PASSES}:`);
+  const t0 = Date.now();
+  let prevCount = 0;
+  let stableRounds = 0;
 
-    // Scroll to top first
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await sleep(500);
-
-    // Get total scrollable height
-    const scrollHeight = await page.evaluate(() => document.body.scrollHeight);
-    const viewportHeight = await page.evaluate(() => window.innerHeight);
-    const maxScroll = scrollHeight - viewportHeight;
-
-    // Calculate how many steps we need
-    const totalSteps = Math.floor(maxScroll / CONFIG.SCROLL_STEP_PX);
-    const delayPerStep = Math.floor(CONFIG.PASS_DURATION_MS / totalSteps);
-
-    let currentPosition = 0;
-    let step = 0;
-
-    // Smooth scroll to bottom
-    while (currentPosition < maxScroll) {
-      currentPosition += CONFIG.SCROLL_STEP_PX;
-      if (currentPosition > maxScroll) currentPosition = maxScroll;
-
-      await page.evaluate((pos) => {
-        window.scrollTo({ top: pos, behavior: 'smooth' });
-      }, currentPosition);
-
-      await sleep(delayPerStep);
-      step++;
-
-      // Log progress every 20%
-      const progress = Math.floor((currentPosition / maxScroll) * 100);
-      if (progress % 20 === 0 && step % 5 === 0) {
-        const eventCount = await page.locator('a[href*="/events/"]').count();
-        console.log(`   ${progress}% scrolled - ${eventCount} event links loaded`);
-      }
+  while (true) {
+    const elapsed = Date.now() - t0;
+    if (elapsed > CONFIG.MAX_SCROLL_TIME_MS) {
+      console.log("   ⏱️ Max scroll time reached");
+      break;
     }
 
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    const finalCount = await page.locator('a[href*="/events/"]').count();
-    console.log(`   ✅ Pass ${pass} complete in ${elapsed}s - ${finalCount} links total\n`);
+    const scrollHeight = await page.evaluate(() => document.body.scrollHeight);
+    const currentPos = await page.evaluate(() => window.scrollY);
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    const target = scrollHeight - viewportHeight;
 
-    // Small pause between passes
-    if (pass < CONFIG.SCROLL_PASSES) {
-      await sleep(1000);
+    let pos = currentPos;
+    const chunkEnd = Math.min(pos + viewportHeight * 2, target);
+    while (pos < chunkEnd) {
+      pos = Math.min(pos + CONFIG.SCROLL_STEP_PX, chunkEnd);
+      await page.evaluate((p) => window.scrollTo({ top: p, behavior: "smooth" }), pos);
+      await sleep(CONFIG.SCROLL_DELAY_MS);
+    }
+
+    await sleep(CONFIG.STABLE_INTERVAL_MS);
+
+    const count = await page.locator('a[href*="/events/"]').count();
+    const sec = ((Date.now() - t0) / 1000).toFixed(0);
+
+    if (count === prevCount) {
+      stableRounds++;
+      console.log(`   ${sec}s — ${count} links (stable ${stableRounds})`);
+
+      if (stableRounds === 2) {
+        console.log(`   ⏳ Waiting 10s for any late-loading events...`);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await sleep(1000);
+        const fullHeight = await page.evaluate(() => document.body.scrollHeight);
+        await page.evaluate((h) => window.scrollTo({ top: h, behavior: "smooth" }), fullHeight);
+        await sleep(CONFIG.LONG_WAIT_MS);
+
+        const finalCount = await page.locator('a[href*="/events/"]').count();
+        if (finalCount === count) {
+          console.log(`   ✅ Confirmed stable at ${finalCount} links. All loaded.\n`);
+          break;
+        } else {
+          console.log(`   🔄 Found ${finalCount - count} more! Continuing...`);
+          prevCount = finalCount;
+          stableRounds = 0;
+        }
+      }
+    } else {
+      stableRounds = 0;
+      console.log(`   ${sec}s — ${count} links (+${count - prevCount} new)`);
+      prevCount = count;
     }
   }
 
-  // Wait for any final lazy loads
   await sleep(CONFIG.FINAL_WAIT_MS);
-
-  const totalCount = await page.locator('a[href*="/events/"]').count();
-  console.log(`✓ Scrolling complete: ${totalCount} event links found\n`);
-  return totalCount;
+  const total = await page.locator('a[href*="/events/"]').count();
+  console.log(`✓ Scroll complete: ${total} links found\n`);
+  return total;
 };
 
+/* ── Decode city-specific date from image URL ─────────────────────────── */
 /**
- * Parses event card text to extract structured event data
+ * BMS uses ImageKit CDN with text overlays. The image URL contains:
+ *   l-text,ie-{base64-encoded-date},fs-29,co-FFFFFF,...
+ *
+ * The first `ie-` parameter is the city-specific date, e.g.:
+ *   ie-U2F0LCAyOCBNYXI%3D  →  Base64("Sat, 28 Mar")
+ *   ie-U3VuLCAyMiBGZWI%3D  →  Base64("Sun, 22 Feb")
+ *
+ * This is the ACTUAL city date (not the tour range), rendered as
+ * a white text overlay on the bottom of the card image.
  */
+const decodeDateFromImageUrl = (imgSrc) => {
+  if (!imgSrc) return "";
+
+  try {
+    // URL-decode the src first
+    const decoded = decodeURIComponent(imgSrc);
+
+    // Find the first ie- parameter (the date overlay text)
+    // Pattern: ie-{base64},  or  ie-{base64}: (ends at comma/colon/end)
+    const match = decoded.match(/l-text,ie-([A-Za-z0-9+/=]+)/);
+    if (!match) return "";
+
+    // Base64 decode
+    const dateText = Buffer.from(match[1], "base64").toString("utf8");
+
+    // Validate it looks like a date (e.g. "Sat, 28 Mar", "Sun, 22 Feb onwards")
+    if (/\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(dateText) ||
+      /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}/i.test(dateText) ||
+      /^(mon|tue|wed|thu|fri|sat|sun)/i.test(dateText)) {
+      return dateText;
+    }
+
+    return "";
+  } catch {
+    return "";
+  }
+};
+
+/* ── Parse one event card ─────────────────────────────────────────────── */
 const parseEventCard = (lines, city) => {
   const event = {
-    event_name: lines[0] || "",
+    event_name: "",
     event_date: "",
     venue: "",
     city: city.toLowerCase(),
     category: "",
-    event_url: ""
+    event_url: "",
+    status: "upcoming",
   };
 
-  // Strategy 1: Parse all lines to extract venue and category
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
+  if (!lines.length) return event;
+  event.event_name = lines[0].trim();
 
-    // Skip price lines
+  let dateFound = false;
+  let venueFound = false;
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
     if (line.startsWith("₹") || line.toUpperCase() === "FREE" || /^\d+$/.test(line)) {
       continue;
     }
 
-    // Venue format: "VenueName: City" or "VenueName : City"
-    if (line.includes(":") && !event.venue) {
-      const parts = line.split(":").map(p => p.trim());
-      if (parts.length >= 2) {
-        const venuePart = parts[0].trim();
-        const cityPart = parts[1].trim();
-        if (venuePart && venuePart.length < 80 && venuePart.length > 2) {
-          event.venue = venuePart;
-          if (cityPart && cityPart.toLowerCase() !== city.toLowerCase()) {
-            event.city = cityPart.toLowerCase();
-          }
-        }
-      }
+    const looksLikeDate =
+      /\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(line) ||
+      /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}/i.test(line) ||
+      /onwards?$/i.test(line) ||
+      /^(mon|tue|wed|thu|fri|sat|sun)[a-z]*,/i.test(line) ||
+      /^today$/i.test(line) ||
+      /^tomorrow$/i.test(line) ||
+      /^multiple\s+dates?$/i.test(line);
+
+    if (looksLikeDate && !dateFound) {
+      event.event_date = line;
+      dateFound = true;
       continue;
     }
 
-    // Category detection via keywords
-    if (!event.category && line.length < 60 && line.length > 2) {
-      if (CONFIG.CATEGORY_KEYWORDS.some((kw) => line.toLowerCase().includes(kw))) {
-        event.category = line;
-      }
-    }
-  }
-
-  // Strategy 2: Fallback for venue - try to find any line with city name pattern
-  if (!event.venue) {
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      // Skip obvious non-venue lines
-      if (line.startsWith("₹") || line.toUpperCase() === "FREE" || /^\d+$/.test(line)) {
+    if (line.includes(":") && !venueFound) {
+      const [venuePart] = line.split(":").map((p) => p.trim());
+      if (venuePart && venuePart.length >= 3 && venuePart.length <= 100) {
+        event.venue = venuePart;
+        venueFound = true;
         continue;
       }
-      // Look for lines that might be venue names (reasonable length, has letters)
-      if (line.length >= 5 && line.length < 80 && /[a-zA-Z]/.test(line)) {
-        // Check if it looks like a venue (not a category keyword)
-        const hasKeyword = CONFIG.CATEGORY_KEYWORDS.some((kw) => line.toLowerCase().includes(kw));
-        if (!hasKeyword && !line.match(/\d{1,2}\s+\w{3}/i)) { // Not a date
-          event.venue = line;
-          break;
-        }
-      }
     }
-  }
 
-  // Strategy 3: Fallback for category - be more lenient
-  if (!event.category) {
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      // Skip price and venue lines
-      if (line.startsWith("₹") || line === event.venue) {
-        continue;
-      }
-      // Accept any reasonable line as category
-      if (line.length >= 3 && line.length < 60 && /^[a-zA-Z\s&-]+$/.test(line)) {
-        event.category = line;
-        break;
-      }
+    if (/^multiple venues$/i.test(line) && !venueFound) {
+      event.venue = "Multiple Venues";
+      venueFound = true;
+      continue;
     }
-  }
 
-  // Strategy 4: Use event name as category hint if still empty
-  if (!event.category && event.event_name) {
-    const nameLC = event.event_name.toLowerCase();
-    for (const kw of CONFIG.CATEGORY_KEYWORDS) {
-      if (nameLC.includes(kw)) {
-        event.category = kw.charAt(0).toUpperCase() + kw.slice(1);
-        break;
-      }
+    if (
+      !event.category &&
+      line.length >= 3 &&
+      line.length <= 60 &&
+      /^[a-zA-Z\s&\-\/]+$/.test(line) &&
+      line.toLowerCase() !== city.toLowerCase()
+    ) {
+      event.category = line;
+      continue;
     }
   }
 
   return event;
 };
 
-/**
- * Extracts events by parsing structured text from each event card
- */
+/* ── Extract events from loaded page ──────────────────────────────────── */
 const extractEvents = async (page, city) => {
-  console.log("📊 Extracting event information...\n");
+  console.log("📊 Extracting events...\n");
 
-  const allEventLinks = await page.locator('a[href*="/events/"]').all();
-  console.log(`Found ${allEventLinks.length} total links`);
+  const allLinks = await page.locator('a[href*="/events/"]').all();
+  console.log(`   Total links on page: ${allLinks.length}`);
 
   const events = [];
   const seenUrls = new Set();
-  let extracted = 0;
-  let skipped = 0;
+  const counters = { extracted: 0, noET: 0, noVenue: 0, dupes: 0, datesFromImage: 0, datesFromText: 0 };
 
-  for (const link of allEventLinks) {
+  for (const link of allLinks) {
     try {
       const href = await link.getAttribute("href");
-
-      if (!href || seenUrls.has(href)) {
-        continue;
-      }
-
-      // Only process real event pages (must have ET code)
-      if (!href.includes("ET")) {
-        skipped++;
-        continue;
-      }
-
+      if (!href || !href.match(/\/ET\d+/i)) { counters.noET++; continue; }
+      if (seenUrls.has(href)) { counters.dupes++; continue; }
       seenUrls.add(href);
+
       const fullUrl = href.startsWith("http") ? href : `https://in.bookmyshow.com${href}`;
-
       const cardText = await link.innerText();
-      if (!cardText || !cardText.trim()) {
-        skipped++;
-        continue;
-      }
+      if (!cardText?.trim()) continue;
 
-      const lines = cardText
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l);
-
-      if (!lines.length) {
-        skipped++;
-        continue;
-      }
+      const lines = cardText.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (!lines.length) continue;
 
       const event = parseEventCard(lines, city);
       event.event_url = fullUrl;
 
-      if (event.event_name) {
-        events.push(event);
-        extracted++;
+      // Quality gates
+      if (!event.event_name) continue;
+      if (!event.venue) { counters.noVenue++; continue; }
 
-        if (extracted <= 3 || extracted % 20 === 0) {
-          console.log(`[${extracted}] ${event.event_name.slice(0, 45)}`);
-          if (event.venue) console.log(`     📍 ${event.venue}`);
-          if (event.category) console.log(`     🏷️  ${event.category}`);
-          console.log();
-        }
-      } else {
-        skipped++;
+      // ── Extract city-specific date from image URL ──────────────────
+      const imgEl = link.locator("img").first();
+      let imgSrc = "";
+      try {
+        imgSrc = (await imgEl.getAttribute("src")) || "";
+      } catch { }
+
+      const imageDate = decodeDateFromImageUrl(imgSrc);
+      if (imageDate) {
+        // Image URL date is always the city-specific date — priority
+        event.event_date = imageDate;
+        counters.datesFromImage++;
+      } else if (event.event_date) {
+        counters.datesFromText++;
       }
-    } catch (err) {
-      skipped++;
+
+      // ── Normalise date to ISO & compute status ─────────────────────
+      const isoDate = toISODate(event.event_date);
+      event.event_date = isoDate;
+      event.status = isoDate && isExpired(isoDate) ? "expired" : "upcoming";
+
+      events.push(event);
+      counters.extracted++;
+
+      if (counters.extracted <= 3 || counters.extracted % 25 === 0) {
+        console.log(`   [${counters.extracted}] ${event.event_name.slice(0, 50)}`);
+        console.log(`       📅 ${event.event_date || "—"}  ⟶  ${event.status}  (${imageDate ? "from image" : "from text"})`);
+        console.log(`       📍 ${event.venue}  |  🏷️  ${event.category || "—"}`);
+      }
+    } catch {
       continue;
     }
   }
 
-  console.log(`\n📊 Extraction Summary:`);
-  console.log(`  ✅ Extracted: ${extracted} events`);
-  console.log(`  ⏭️  Skipped: ${skipped} (non-events or duplicates)`);
+  // ── Summary ────────────────────────────────────────────────────────────
+  const withDate = events.filter((e) => e.event_date).length;
+  const upcoming = events.filter((e) => e.status === "upcoming").length;
+  const expired = events.filter((e) => e.status === "expired").length;
 
-  const withVenue = events.filter((e) => e.venue).length;
-  const withCategory = events.filter((e) => e.category).length;
-  console.log(`\n📈 Data Quality:`);
-  console.log(`  • Venue: ${withVenue}/${extracted} (${Math.round((withVenue / extracted) * 100)}%)`);
-  console.log(`  • Category: ${withCategory}/${extracted} (${Math.round((withCategory / extracted) * 100)}%)`);
+  console.log(`\n${"─".repeat(50)}`);
+  console.log(`   ✅ Extracted: ${counters.extracted} events`);
+  console.log(`   ⏭️  Skipped:  ${counters.noET} no-ET  |  ${counters.noVenue} no-venue  |  ${counters.dupes} dupes`);
+  console.log(`   📅 Dates:    ${withDate}/${counters.extracted} (${counters.extracted ? Math.round((withDate / counters.extracted) * 100) : 0}%)`);
+  console.log(`   📸 Source:   ${counters.datesFromImage} from image URL  |  ${counters.datesFromText} from card text`);
+  console.log(`   🟢 Upcoming: ${upcoming}   🔴 Expired: ${expired}`);
+  console.log(`${"─".repeat(50)}\n`);
 
   return events;
 };
 
-/**
- * Main scraping function using Firefox with smooth scrolling
- */
-const scrapeBookMyShow = async (city, timeoutMs = 60000) => {
+/* ── Main Scrape Function ─────────────────────────────────────────────── */
+const scrapeBookMyShow = async (city, timeoutMs = 120000) => {
   const url = buildUrl(city);
+  const headless = process.env.HEADLESS !== "false";
 
-  console.log("=".repeat(70));
-  console.log(`  🎯 BOOKMYSHOW ${city.toUpperCase()} EVENTS SCRAPER`);
-  console.log("=".repeat(70));
-  console.log();
-  console.log(`🌐 Target: ${url}\n`);
+  console.log("\n" + "═".repeat(60));
+  console.log(`  🎯 SCRAPING: ${city.toUpperCase()}`);
+  console.log("═".repeat(60));
+  console.log(`  URL:      ${url}`);
+  console.log(`  Headless: ${headless}`);
+  console.log(`  Timeout:  ${timeoutMs}ms`);
+  console.log("═".repeat(60) + "\n");
 
   let browser;
-  const startTime = Date.now();
+  const t0 = Date.now();
 
   try {
-    // Launch Chromium (lighter and more compatible)
-    console.log("🚀 Launching Chromium browser...");
-    browser = await chromium.launch({
-      headless: false,
-      timeout: timeoutMs
-    });
+    browser = await chromium.launch({ headless, timeout: timeoutMs });
 
     const context = await browser.newContext({
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      viewport: { width: 1920, height: 1080 }
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      viewport: { width: 1920, height: 1080 },
     });
 
     const page = await context.newPage();
 
-    // Navigate to page
     console.log("📄 Loading page...");
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
-
-    console.log("⏳ Waiting for initial content...");
     await sleep(CONFIG.INITIAL_WAIT_MS);
 
-    // Perform smooth scrolling
-    await smoothScrollToLoadEvents(page);
-
-    // Extract event data
+    await scrollUntilStable(page);
     const events = await extractEvents(page, city);
 
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`\n✅ Successfully extracted ${events.length} events in ${totalTime}s!`);
-    console.log("=".repeat(70) + "\n");
+    const sec = ((Date.now() - t0) / 1000).toFixed(1);
+    console.log(`✅ Done: ${events.length} events in ${sec}s\n`);
 
     return events;
   } catch (error) {
-    console.error(`❌ Error during scraping: ${error.message}`);
+    console.error(`❌ Scrape error for ${city}: ${error.message}`);
     throw error;
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 };
 
