@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",
