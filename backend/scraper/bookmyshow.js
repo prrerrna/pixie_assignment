@@ -36,6 +36,9 @@ const scrollUntilStable = async (page) => {
   let prevCount = 0;
   let stableRounds = 0;
 
+  // Move mouse to center of page so wheel events are received
+  await page.mouse.move(960, 540);
+
   while (true) {
     const elapsed = Date.now() - t0;
     if (elapsed > CONFIG.MAX_SCROLL_TIME_MS) {
@@ -43,16 +46,18 @@ const scrollUntilStable = async (page) => {
       break;
     }
 
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
     const scrollHeight = await page.evaluate(() => document.body.scrollHeight);
     const currentPos = await page.evaluate(() => window.scrollY);
-    const viewportHeight = await page.evaluate(() => window.innerHeight);
     const target = scrollHeight - viewportHeight;
 
+    // Scroll down one viewport height using mouse wheel (triggers lazy-loading)
+    const chunkEnd = Math.min(currentPos + viewportHeight * 2, target);
     let pos = currentPos;
-    const chunkEnd = Math.min(pos + viewportHeight * 2, target);
     while (pos < chunkEnd) {
-      pos = Math.min(pos + CONFIG.SCROLL_STEP_PX, chunkEnd);
-      await page.evaluate((p) => window.scrollTo({ top: p, behavior: "smooth" }), pos);
+      const delta = Math.min(CONFIG.SCROLL_STEP_PX, chunkEnd - pos);
+      await page.mouse.wheel(0, delta);
+      pos += delta;
       await sleep(CONFIG.SCROLL_DELAY_MS);
     }
 
@@ -67,10 +72,17 @@ const scrollUntilStable = async (page) => {
 
       if (stableRounds === 2) {
         console.log(`   ⏳ Waiting 10s for any late-loading events...`);
+        // Scroll back to top, then wheel all the way to the bottom
         await page.evaluate(() => window.scrollTo(0, 0));
-        await sleep(1000);
+        await sleep(500);
         const fullHeight = await page.evaluate(() => document.body.scrollHeight);
-        await page.evaluate((h) => window.scrollTo({ top: h, behavior: "smooth" }), fullHeight);
+        // Wheel down to bottom in large steps
+        let swept = 0;
+        while (swept < fullHeight) {
+          await page.mouse.wheel(0, 600);
+          swept += 600;
+          await sleep(80);
+        }
         await sleep(CONFIG.LONG_WAIT_MS);
 
         const finalCount = await page.locator('a[href*="/events/"]').count();
