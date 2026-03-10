@@ -16,13 +16,11 @@ const { toISODate } = require("../utils/date");
 
 /* ── Configuration ────────────────────────────────────────────────────── */
 const CONFIG = {
-  SCROLL_STEP_PX: 120,
-  SCROLL_DELAY_MS: 80,
-  STABLE_INTERVAL_MS: 2000,
+  STABLE_INTERVAL_MS: 2500,  // Wait after each scroll-to-bottom for content to load
   LONG_WAIT_MS: 10000,
   INITIAL_WAIT_MS: 3000,
   FINAL_WAIT_MS: 2000,
-  MAX_SCROLL_TIME_MS: 90000,
+  MAX_SCROLL_TIME_MS: 180000, // 3 min — large cities like Mumbai have 300+ events
 };
 
 const buildUrl = (city) => `https://in.bookmyshow.com/explore/events-${city}`;
@@ -36,9 +34,6 @@ const scrollUntilStable = async (page) => {
   let prevCount = 0;
   let stableRounds = 0;
 
-  // Move mouse to center of page so wheel events are received
-  await page.mouse.move(960, 540);
-
   while (true) {
     const elapsed = Date.now() - t0;
     if (elapsed > CONFIG.MAX_SCROLL_TIME_MS) {
@@ -46,22 +41,11 @@ const scrollUntilStable = async (page) => {
       break;
     }
 
-    const viewportHeight = await page.evaluate(() => window.innerHeight);
-    const scrollHeight = await page.evaluate(() => document.body.scrollHeight);
-    const currentPos = await page.evaluate(() => window.scrollY);
-    const target = scrollHeight - viewportHeight;
-
-    // Scroll down one viewport height using mouse wheel (triggers lazy-loading)
-    const chunkEnd = Math.min(currentPos + viewportHeight * 2, target);
-    let pos = currentPos;
-    while (pos < chunkEnd) {
-      const delta = Math.min(CONFIG.SCROLL_STEP_PX, chunkEnd - pos);
-      await page.mouse.wheel(0, delta);
-      pos += delta;
-      await sleep(CONFIG.SCROLL_DELAY_MS);
-    }
-
-    await sleep(CONFIG.STABLE_INTERVAL_MS);
+    // Jump straight to the bottom of the page (instant, no behavior option).
+    // Each time BMS loads more events the scrollHeight grows, so next call
+    // jumps even further — this is the standard headless infinite-scroll pattern.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await sleep(CONFIG.STABLE_INTERVAL_MS); // wait for BMS to render next batch
 
     const count = await page.locator('a[href*="/events/"]').count();
     const sec = ((Date.now() - t0) / 1000).toFixed(0);
@@ -71,18 +55,10 @@ const scrollUntilStable = async (page) => {
       console.log(`   ${sec}s — ${count} links (stable ${stableRounds})`);
 
       if (stableRounds === 2) {
-        console.log(`   ⏳ Waiting 10s for any late-loading events...`);
-        // Scroll back to top, then wheel all the way to the bottom
+        console.log(`   ⏳ Final pass — scrolling from top to confirm...`);
         await page.evaluate(() => window.scrollTo(0, 0));
         await sleep(500);
-        const fullHeight = await page.evaluate(() => document.body.scrollHeight);
-        // Wheel down to bottom in large steps
-        let swept = 0;
-        while (swept < fullHeight) {
-          await page.mouse.wheel(0, 600);
-          swept += 600;
-          await sleep(80);
-        }
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await sleep(CONFIG.LONG_WAIT_MS);
 
         const finalCount = await page.locator('a[href*="/events/"]').count();
