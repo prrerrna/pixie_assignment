@@ -9,7 +9,7 @@ COPY package*.json ./
 RUN npm install
 
 # Install Playwright browsers AND system dependencies (requires root, handled by Docker build)
-RUN npx playwright install --with-deps firefox
+RUN npx playwright install --with-deps chromium
 
 # Copy the rest of the application code
 COPY . .

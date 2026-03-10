@@ -2,7 +2,7 @@
  * BookMyShow Event Scraper
  *
  * Key capabilities:
- *  - Headless Firefox (production-safe, stealthier than chromium)
+ *  - Headless Chromium with container-safe flags (no GPU, no sandbox, no dev-shm)
  *  - Scroll-until-stable: keeps scrolling until no new events appear
  *  - Robust text-line parsing for name, category, venue
  *  - City-specific dates decoded from Base64 in image CDN URLs
@@ -11,7 +11,7 @@
  *  - Quality gates: drops banner/footer cards (no venue = not a real event)
  */
 
-const { firefox } = require("playwright");
+const { chromium } = require("playwright");
 const { toISODate } = require("../utils/date");
 
 /* ── Configuration ────────────────────────────────────────────────────── */
@@ -298,7 +298,7 @@ const scrapeBookMyShow = async (city, timeoutMs = 120000) => {
   console.log(`  🎯 SCRAPING: ${city.toUpperCase()}`);
   console.log("═".repeat(60));
   console.log(`  URL:      ${url}`);
-  console.log(`  Headless: ${headless} (Firefox)`);
+  console.log(`  Headless: ${headless} (Chromium)`);
   console.log(`  Timeout:  ${timeoutMs}ms`);
   console.log("═".repeat(60) + "\n");
 
@@ -306,16 +306,23 @@ const scrapeBookMyShow = async (city, timeoutMs = 120000) => {
   const t0 = Date.now();
 
   try {
-    // Firefox is often less detected than Chromium in headless mode
-    browser = await firefox.launch({
+    // Chromium with container-safe flags — critical for Railway/Docker environments
+    browser = await chromium.launch({
       headless,
       timeout: timeoutMs,
-      args: ["--quiet"], // Firefox uses different args
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",                // No GPU in containers
+        "--disable-dev-shm-usage",      // /dev/shm is too small in Docker by default
+        "--disable-blink-features=AutomationControlled",
+        "--no-zygote",                  // Avoids process spawning issues in containers
+      ],
     });
 
     const context = await browser.newContext({
       userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       viewport: { width: 1920, height: 1080 },
       locale: "en-IN",
       timezoneId: "Asia/Kolkata",
