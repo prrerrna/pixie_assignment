@@ -7,19 +7,6 @@
 
 ---
 
-## 📋 Assignment Requirements Checklist
-
-| Requirement | Status | Details |
-| :--- | :--- | :--- |
-| **1. Mobile Number** | ✅ | [Your Mobile Number Here] |
-| **2. Email ID** | ✅ | [Your Email ID Here] |
-| **3. Live Website** | ✅ | [https://pixie-assignment.vercel.app](https://pixie-assignment.vercel.app) |
-| **4. GitHub Repo** | ✅ | [Your GitHub Repo Link Here] |
-| **5. README.md** | ✅ | This file (Architecture, Strategy, Setup covered) |
-| **6. Google Sheet** | ✅ | [Your Google Sheet Link Here] |
-
----
-
 ## 🏗️ Architecture Overview
 
 ```
