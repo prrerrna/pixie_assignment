@@ -33,32 +33,54 @@ const scrollUntilStable = async (page) => {
   const t0 = Date.now();
   let prevCount = 0;
   let stableRounds = 0;
+  const STEP = 800;          // px per scroll tick — large enough to move, small enough to trigger IntersectionObserver
+  const STEP_DELAY = 300;    // ms between each scroll step (human-like pace)
+
+  // Move mouse into the page so scroll events are received
+  await page.mouse.move(500, 500);
 
   while (true) {
-    const elapsed = Date.now() - t0;
-    if (elapsed > CONFIG.MAX_SCROLL_TIME_MS) {
+    if (Date.now() - t0 > CONFIG.MAX_SCROLL_TIME_MS) {
       console.log("   ⏱️ Max scroll time reached");
       break;
     }
 
-    // Jump straight to the bottom of the page (instant, no behavior option).
-    // Each time BMS loads more events the scrollHeight grows, so next call
-    // jumps even further — this is the standard headless infinite-scroll pattern.
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await sleep(CONFIG.STABLE_INTERVAL_MS); // wait for BMS to render next batch
+    // Scroll down incrementally so BMS IntersectionObserver fires on each card
+    const { scrollY, innerHeight, scrollHeight } = await page.evaluate(() => ({
+      scrollY: window.scrollY,
+      innerHeight: window.innerHeight,
+      scrollHeight: document.body.scrollHeight,
+    }));
 
-    const count = await page.locator('a[href*="/events/"]').count();
+    const atBottom = scrollY + innerHeight >= scrollHeight - 100;
+    console.log(`   scrollY=${Math.round(scrollY)} scrollHeight=${scrollHeight} atBottom=${atBottom}`);
+
+    if (!atBottom) {
+      // Not at bottom yet — scroll one step and continue
+      await page.evaluate((step) => window.scrollBy(0, step), STEP);
+      await sleep(STEP_DELAY);
+      continue;
+    }
+
+    // We reached the bottom — check if the page grew (new events loaded)
     const sec = ((Date.now() - t0) / 1000).toFixed(0);
+    const count = await page.locator('a[href*="/events/"]').count();
 
     if (count === prevCount) {
       stableRounds++;
       console.log(`   ${sec}s — ${count} links (stable ${stableRounds})`);
 
       if (stableRounds === 2) {
+        // One final pass: scroll back to top and trickle all the way down again
         console.log(`   ⏳ Final pass — scrolling from top to confirm...`);
         await page.evaluate(() => window.scrollTo(0, 0));
         await sleep(500);
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+
+        const finalPageHeight = await page.evaluate(() => document.body.scrollHeight);
+        for (let pos = 0; pos < finalPageHeight; pos += STEP) {
+          await page.evaluate((step) => window.scrollBy(0, step), STEP);
+          await sleep(STEP_DELAY);
+        }
         await sleep(CONFIG.LONG_WAIT_MS);
 
         const finalCount = await page.locator('a[href*="/events/"]').count();
@@ -70,11 +92,17 @@ const scrollUntilStable = async (page) => {
           prevCount = finalCount;
           stableRounds = 0;
         }
+      } else {
+        // Wait a bit longer, then try scrolling back up slightly and down again
+        await sleep(CONFIG.STABLE_INTERVAL_MS);
       }
     } else {
       stableRounds = 0;
       console.log(`   ${sec}s — ${count} links (+${count - prevCount} new)`);
       prevCount = count;
+      // Page grew — reset scroll position check by scrolling one more step
+      await page.evaluate((step) => window.scrollBy(0, step), STEP);
+      await sleep(STEP_DELAY);
     }
   }
 
@@ -311,7 +339,7 @@ const scrapeBookMyShow = async (city, timeoutMs = 120000) => {
     const context = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      viewport: { width: 1920, height: 1080 },
+      viewport: { width: 1920, height: 3000 },
       locale: "en-IN",
       timezoneId: "Asia/Kolkata",
       geolocation: { latitude: 26.9124, longitude: 75.7873 }, // Jaipur coordinates
