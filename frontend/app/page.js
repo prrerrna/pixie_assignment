@@ -53,6 +53,7 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState(null);
   const [syncTime, setSyncTime] = useState(null);
+  const [showBanner, setShowBanner] = useState(true);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -127,6 +128,54 @@ export default function Dashboard() {
       </div>
       <div className="noise" />
       <div className="dot-grid" />
+
+      {/* ── Service Status Banner ──────────────── */}
+      <AnimatePresence>
+        {showBanner && (
+          <motion.div
+            initial={{ opacity: 0, y: -40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -40 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            style={{
+              position: 'relative',
+              background: 'linear-gradient(90deg, #F59E0B22, #EF444422)',
+              borderBottom: '1px solid #F59E0B55',
+              backdropFilter: 'blur(10px)',
+              padding: '10px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              fontSize: 13,
+              color: '#FCD34D',
+            }}
+          >
+            <span style={{ fontSize: 16 }}>⚠️</span>
+            <span>
+              <strong>Service Notice:</strong> Since 20th March 2026, the data scraper may be temporarily limited or inactive due to deployment credits on Railway.
+              To keep this project running or to license this scraper, reach out at{' '}
+              <a
+                href="mailto:kprerna183@gmail.com"
+                style={{ color: '#FCD34D', fontWeight: 700, textDecoration: 'underline' }}
+              >
+                kprerna183@gmail.com
+              </a>
+            </span>
+            <button
+              onClick={() => setShowBanner(false)}
+              style={{
+                position: 'absolute', right: 14,
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: '#FCD34D', fontSize: 18, lineHeight: 1, padding: 4,
+              }}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="shell">
         {/* ── Header ─────────────────────────────── */}
